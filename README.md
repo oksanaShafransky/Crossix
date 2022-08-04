@@ -1,4 +1,4 @@
-# Crossix
+# Crossix - sort file with limited space
 This project intends to sort efficiently a file with limited number of records in memory.
 It takes input file, reads it in chunks according to the required size.
 Each chunk of which is sorted independently of the next, and written to its own temporary file.
