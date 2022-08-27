@@ -15,8 +15,7 @@ public class DataLoader {
     /**
      * Reads the input file and splits it into sorted chunks which are written to temporary files.
      */
-    public void loadCSVAnSplitData() {
-        String inputPath = CrossixConstants.INPUT_FILE_PATH + "/input_data_small.csv";
+    public void loadCSVAndSplitData(String inputPath) {
         FileInputStream inputStream = null;
         Scanner sc = null;
         int line_counter = 0;
@@ -35,8 +34,16 @@ public class DataLoader {
                     sortInputDataList(tempList);
                     writeInputDataChunk(tempList, chunk_counter);
                     tempList.clear();
-                    System.out.println("writing chunk #" + chunk_counter);
+                    System.out.println("writing chunk #" + chunk_counter + " total " + line_counter + " lines.");
                 }
+            }
+            //UPDATED: flush rest of lines
+            if(!tempList.isEmpty()){
+                sortInputDataList(tempList);
+                chunk_counter++;
+                writeInputDataChunk(tempList, chunk_counter);
+                tempList.clear();
+                System.out.println("writing chunk #" + chunk_counter + " total " + line_counter + " lines.");
             }
         } catch (FileNotFoundException e) {
             logger.error("loadCSVAnSplitData failed", e);
@@ -110,55 +117,99 @@ public class DataLoader {
     }
 
     /**
-     * Writes the list of lines out to the output stream, append new lines after each line.
+     * read every 2 files of chunks, merge them on temp file, till all files are merged on the sorted manner
+     * into the final output folder (output_data).
      */
-    public void mergeChunksAndWriteToOutput() {
-        File dir = new File(CrossixConstants.CHUNKS_PATH);
+    public void readChunksAndMergeSortWrite(String chunkPath) {
+        File dir = new File(chunkPath);
         File[] listOfFiles = dir.listFiles();
-        List<BufferedReader> readers = new ArrayList<>();
-        Map<InputData, BufferedReader> map = new HashMap<>();
-        PrintWriter writer = null;
-
         try {
-            writer = new PrintWriter(CrossixConstants.OUTPUT_FILE_PATH + "/output_file.csv");
-            for (int i = 0; i < listOfFiles.length; i++) {
-                BufferedReader reader = new BufferedReader(new FileReader(listOfFiles[i]));
-                readers.add(reader);
+            int numOfFiles = listOfFiles.length;
+            int countOfFiles = 0;
+            //there is only one file, write it to the output
+            if(dir.list().length==1){
+                PrintWriter writer = new PrintWriter(CrossixConstants.OUTPUT_FILE_PATH + "/output_file.csv");
+                BufferedReader reader = new BufferedReader(new FileReader(listOfFiles[0]));
                 String line = reader.readLine();
-                if (line != null) {
-                    map.put(prepareInputData(line.split(",")), readers.get(i));
+                while(line!=null) {
+                    InputData inputData = prepareInputData(line.split(","));
+                    writer.write(inputData.toString() + "\n");
+                    line = reader.readLine();
                 }
-            }
-
-            List<InputData> sortedKeyInputData = new LinkedList<>(map.keySet());
-            while ( map.size() > 0 ) {
-                Collections.sort(sortedKeyInputData, Comparator.comparing(InputData::getVisitorId));
-                InputData inputData = sortedKeyInputData.remove(0);
-                writer.write(inputData.toString() + "\n");
-                BufferedReader reader = map.remove(inputData);
-                String nextLine = reader.readLine();
-                if ( nextLine != null ){
-                    InputData sw = prepareInputData(nextLine.split(","));
-                    map.put(sw,  reader);
-                    sortedKeyInputData.add(sw);
-                }
-            }
-        }catch (Exception e){
-            logger.error("mergeChunksAndWriteToOutput failed", e);
-        } finally {
-            for (BufferedReader reader: readers){
-                try{
-                    reader.close();
-                } catch(Exception e){
-                    logger.error("mergeChunksAndWriteToOutput failed", e);
-                }
-            }
-            try{
+                listOfFiles[0].delete();
+                reader.close();
                 writer.close();
-            } catch(Exception e){
-                logger.error("mergeChunksAndWriteToOutput failed", e);
+            } else {
+                //merge all pairs of files
+                int numOfFileToMerge = numOfFiles%2==0 ? numOfFiles:numOfFiles-1;
+                boolean mergeFlag = true;
+                int totalCount = 0;
+                while (mergeFlag) {
+                    for (int i = 0; i < numOfFileToMerge; i += 2) {
+                        totalCount++;
+                        mergeTwoFiles(listOfFiles[i], listOfFiles[i + 1], CrossixConstants.CHUNKS_PATH + "/temp_merge_" + totalCount + ".csv");
+                        countOfFiles+=2;
+                    }
+                    mergeFlag = dir.listFiles().length > 2 ? true: false;
+                    listOfFiles = dir.listFiles();
+                    numOfFileToMerge = listOfFiles.length%2==0 ? listOfFiles.length:listOfFiles.length-1;
+                }
+                //merge last odd file with one of the merged files
+                if (countOfFiles < numOfFiles) {
+                    mergeTwoFiles(listOfFiles[countOfFiles], new File(CrossixConstants.CHUNKS_PATH + "/temp_merge_" + totalCount + ".csv"), CrossixConstants.CHUNKS_PATH + "/temp_merge_odd.csv");
+                }
+                //merge last 2 merged files into final output file with all sorted data
+                listOfFiles = dir.listFiles();
+                mergeTwoFiles(listOfFiles[0], listOfFiles[1], CrossixConstants.OUTPUT_FILE_PATH + "/output_file.csv");
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
         }
-        logger.info("mergeChunksAndWriteToOutput finished successfully!");
+    }
+
+    public void mergeTwoFiles(File file1, File file2, String outputFileName) {
+        try {
+            PrintWriter writer = new PrintWriter(outputFileName);
+            BufferedReader reader1 = new BufferedReader(new FileReader(file1));
+            BufferedReader reader2 = new BufferedReader(new FileReader(file2));
+            String line1 = reader1.readLine();
+            String line2 = reader2.readLine();
+            InputData inputData1 = prepareInputData(line1.split(","));
+            InputData inputData2 = prepareInputData(line2.split(","));
+            while (line1 != null || line2 != null) {
+                if (line1 != null && inputData1.getVisitorId().compareTo(inputData2.visitorId) < 1) {
+                    writer.write(inputData1.toString() + "\n");
+                    line1 = reader1.readLine();
+                    if (line1 != null) {
+                        inputData1 = prepareInputData(line1.split(","));
+                    }
+                } else if (line2 != null && inputData1.getVisitorId().compareTo(inputData2.visitorId) >= 1) {
+                    writer.write(inputData2.toString() + "\n");
+                    line2 = reader2.readLine();
+                    if (line2 != null)
+                        inputData2 = prepareInputData(line2.split(","));
+                } else if (line1 == null && line2 != null) {
+                    writer.write(inputData2.toString() + "\n");
+                    line2 = reader2.readLine();
+                    if (line2 != null)
+                        inputData2 = prepareInputData(line2.split(","));
+                } else if (line2 == null && line1 != null) {
+                    writer.write(inputData1.toString() + "\n");
+                    line1 = reader1.readLine();
+                    if (line1 != null)
+                        inputData1 = prepareInputData(line1.split(","));
+                }
+            }
+            writer.close();
+            reader1.close();
+            reader2.close();
+            file1.delete();
+            file2.delete();
+        } catch (IOException e){
+            logger.error("Error on merge files: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
     }
 }

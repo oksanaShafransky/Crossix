@@ -8,15 +8,12 @@ public class EfficientSortMain {
     public static void main(String[] args) {
         System.out.println("EfficientSort started!");
         //load chunks of data, sort and write to the disk
-        dataLoader.loadCSVAnSplitData();
+        String inputPath = CrossixConstants.INPUT_FILE_PATH + "/input_data_small.csv";
+        dataLoader.loadCSVAndSplitData(inputPath);
         //write the list of lines out to the output stream, append new lines after each line.
-        dataLoader.mergeChunksAndWriteToOutput();
+        String chunkPath = CrossixConstants.CHUNKS_PATH;
+        dataLoader.readChunksAndMergeSortWrite(chunkPath);
         System.out.println("EfficientSort finished successfully!");
     }
-
-
-
-
-
 
 }
